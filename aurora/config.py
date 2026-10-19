@@ -18,4 +18,4 @@ BANCO_CONDOMINIO = ESTADO / "condominio.db"
 BANCO_SESSOES = ESTADO / "sessoes.db"
 
 APP_NAME = "residencial_aurora"
-MODELO = os.getenv("AURORA_MODELO") or "gemini-2.5-flash"
+MODELO = os.getenv("AURORA_MODELO") or "gemini-3.5-flash"

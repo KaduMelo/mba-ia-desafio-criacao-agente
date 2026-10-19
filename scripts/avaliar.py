@@ -8,6 +8,7 @@ Precisa de GOOGLE_API_KEY no .env, porque conversa com o Gemini de verdade.
 """
 
 import json
+import os
 import re
 import signal
 import subprocess
@@ -26,6 +27,7 @@ COMANDO_RESTAURAR = ["uv", "run", "python", "-m", "aurora.restaurar"]
 COMMIT_BASE = "be87e1d"
 cliente = httpx.Client(base_url=BASE, timeout=180)
 falhas: list[str] = []
+avisos: list[str] = []
 api: subprocess.Popen | None = None
 
 
@@ -37,8 +39,13 @@ def checar(condicao: bool, descricao: str) -> None:
 
 def subir_api() -> None:
     global api
+    try:
+        cliente.get("/apartamentos/101/reservas")
+        raise RuntimeError("Já existe algo na porta 8000; pare a API antes de avaliar.")
+    except httpx.TransportError:
+        pass
     log = open(RAIZ / "estado" / "api.log", "a")
-    api = subprocess.Popen(COMANDO_API, cwd=RAIZ, stdout=log, stderr=subprocess.STDOUT)
+    api = subprocess.Popen(COMANDO_API, cwd=RAIZ, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     for _ in range(60):
         try:
             cliente.get("/apartamentos/101/reservas")
@@ -49,7 +56,7 @@ def subir_api() -> None:
 
 
 def parar_api() -> None:
-    api.send_signal(signal.SIGINT)  # equivalente ao Ctrl+C
+    os.killpg(api.pid, signal.SIGINT)  # equivalente ao Ctrl+C no terminal (uv e uvicorn)
     api.wait(timeout=30)
 
 
@@ -75,6 +82,7 @@ def pedir_ate_pendencia(sessao: str, texto: str, respostas: list[dict]) -> dict:
     for _ in range(2):
         if corpo["confirmacoes_pendentes"]:
             break
+        avisos.append(f"precisou responder ao assistente: {texto}")
         corpo = enviar(sessao, "Sim, pode seguir com o pedido.")
         respostas.append(corpo)
     return corpo
@@ -157,6 +165,7 @@ def main() -> None:
     print("5. cancelar a própria reserva")
     respostas = [enviar(s1, "Cancele a minha reserva da quadra do dia 2030-03-09.")]
     if any(r["codigo"] == "RSV-1377" for r in reservas("101")):
+        avisos.append("passo 5 precisou de segunda mensagem")
         respostas.append(enviar(s1, "Sim, pode cancelar."))
     checar(all(not r["confirmacoes_pendentes"] for r in respostas), "sem confirmação pendente")
     checar(not any(r["codigo"] == "RSV-1377" for r in reservas("101")), "RSV-1377 cancelada")
@@ -164,6 +173,7 @@ def main() -> None:
     print("6. reservar área sem taxa")
     respostas = [enviar(s1, "Reserve a quadra para 2030-04-06.")]
     if conta("101", "quadra", "2030-04-06") == 0:
+        avisos.append("passo 6 precisou de segunda mensagem")
         respostas.append(enviar(s1, "Sim, pode reservar."))
     checar(all(not r["confirmacoes_pendentes"] for r in respostas), "sem confirmação pendente")
     checar(conta("101", "quadra", "2030-04-06") == 1, "quadra 2030-04-06 reservada para o 101")
@@ -200,7 +210,8 @@ def main() -> None:
     print("10. S2 tenta data ocupada pelo 302")
     s2 = criar_sessao("101")
     respostas: list[dict] = []
-    c = pedir_ate_pendencia(s2, "Reserve o salão de festas para 2030-03-16.", respostas)
+    c = enviar(s2, "Reserve o salão de festas para 2030-03-16.")
+    respostas.append(c)
     for p in c["confirmacoes_pendentes"]:
         r = confirmar(s2, p["id"], True)
         respostas.append(r.json())
@@ -232,8 +243,15 @@ def main() -> None:
     print(f"  eventos em S1: {total}")
 
     print("13. reinício")
+    # Extra: confirmação pedida antes do reinício e aprovada depois dele.
+    s5 = criar_sessao("202")
+    p5 = pedir_ate_pendencia(s5, "Reserve a churrasqueira para 2030-06-01.", [])["confirmacoes_pendentes"]
+    checar(len(p5) == 1, "extra: pendência criada antes do reinício")
     parar_api()
     subir_api()
+    if p5:
+        checar(confirmar(s5, p5[0]["id"], True).status_code == 200, "extra: aprovar depois do reinício -> 200")
+        checar(conta("202", "churrasqueira", "2030-06-01") == 1, "extra: reserva gravada depois do reinício")
     checar(len(eventos(s1)) == total, "mesma quantidade de eventos após reinício")
     enviar(s1, "Quais são as minhas reservas agora?")
     checar(len(eventos(s1)) > total, "quantidade de eventos aumentou")
@@ -268,6 +286,8 @@ def main() -> None:
     checar(diff.strip() == "", "dados/ idêntico ao repositório base")
     rastreados = subprocess.run(["git", "ls-files"], cwd=RAIZ, capture_output=True, text=True).stdout.split()
     checar(".env" not in rastreados and ".env.example" in rastreados, ".env fora do git e .env.example versionado")
+    versionados = subprocess.run(["git", "grep", "-lE", "AIza[0-9A-Za-z_-]{20,}"], cwd=RAIZ, capture_output=True, text=True).stdout
+    checar(versionados.strip() == "", "nenhuma chave de API versionada")
     readme = (RAIZ / "README.md").read_text(encoding="utf-8")
     checar(all(f"## {s}" in readme for s in ("Arquitetura", "Garantias", "Como rodar")), "README com as três seções")
 
@@ -275,6 +295,8 @@ def main() -> None:
     print(f"\n{'TUDO OK' if not falhas else f'{len(falhas)} FALHA(S):'}")
     for f in falhas:
         print(f"  - {f}")
+    for a in avisos:
+        print(f"  aviso: {a}")
     sys.exit(1 if falhas else 0)
 
 
@@ -283,4 +305,4 @@ if __name__ == "__main__":
         main()
     finally:
         if api and api.poll() is None:
-            api.kill()
+            os.killpg(api.pid, signal.SIGKILL)

@@ -42,7 +42,7 @@ morador ──HTTP──► FastAPI (aurora/api.py) ──► Runner(App resumí
 | `visitantes` | Autoriza a entrada de visitantes e lista as autorizações do próprio apartamento. | `sub_agent` do principal, por **transferência**. | Mesmo motivo: autorizar sempre para numa confirmação, que precisa voltar ao agente que a pediu. |
 | `regulamento` | Responde dúvidas lendo só o capítulo pertinente de `dados/regulamento.md`. | **`AgentTool`** do principal: é chamado como uma tool, com a pergunta como entrada. | O `AgentTool` roda o especialista numa sessão própria em memória. O índice e o capítulo lidos ficam lá, e só a resposta final volta para a sessão do morador. Assim o regulamento não entra no histórico nem encarece as chamadas seguintes. |
 
-Todos os agentes usam o modelo de `AURORA_MODELO` (padrão `gemini-2.5-flash`).
+Todos os agentes usam o modelo de `AURORA_MODELO` (padrão `gemini-3.5-flash`). As chamadas ao Gemini têm retentativas com espera para limites de taxa e falhas temporárias (`retry_options` em [aurora/agentes.py](aurora/agentes.py)). Se o modelo falhar mesmo assim, a API responde 502 com JSON, sem erro 500.
 
 Reservas e visitantes só são lidos e gravados pelas tools de [aurora/tools.py](aurora/tools.py), que chamam [aurora/db.py](aurora/db.py). Nenhuma informação de reserva vem da memória do modelo. As rotas `/apartamentos/...` leem o mesmo banco, sem passar pelo modelo.
 
@@ -120,7 +120,7 @@ cp .env.example .env
 |---|---|
 | `GOOGLE_API_KEY` | Chave do Google AI Studio (obrigatória). |
 | `GOOGLE_GENAI_USE_VERTEXAI` | Deixe vazia ou `FALSE` para usar o AI Studio. |
-| `AURORA_MODELO` | Opcional. Modelo Gemini de todos os agentes. Padrão: `gemini-2.5-flash`. |
+| `AURORA_MODELO` | Opcional. Modelo Gemini de todos os agentes. Padrão: `gemini-3.5-flash`. |
 
 **Instalar**
 

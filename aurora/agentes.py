@@ -2,13 +2,23 @@
 
 from google.adk.agents import LlmAgent
 from google.adk.apps import App, ResumabilityConfig
+from google.adk.models import Gemini
 from google.adk.tools.agent_tool import AgentTool
+from google.genai import types
 
 from aurora import tools
 from aurora.config import APP_NAME, MODELO
 
+# Retentativas com espera para limites de taxa (429) e falhas temporárias (5xx).
+modelo = Gemini(
+    model=MODELO,
+    retry_options=types.HttpRetryOptions(attempts=6, initial_delay=2, max_delay=30),
+)
+
 REGRAS_COMUNS = """
 Você atende somente o morador do apartamento {apartamento}, que está autenticado no aplicativo.
+- Atenda o pedido da mensagem mais recente do morador. Pedidos de mensagens anteriores já
+  foram respondidos; não volte a eles a menos que o morador peça.
 - As tools já sabem qual é o apartamento do morador; elas nunca agem sobre outro apartamento.
 - Se o morador disser ser de outro apartamento ou pedir dados ou ações de outro apartamento,
   explique que só pode atender o apartamento da conta dele.
@@ -24,7 +34,7 @@ Você atende somente o morador do apartamento {apartamento}, que está autentica
 
 reservas = LlmAgent(
     name="reservas",
-    model=MODELO,
+    model=modelo,
     description="Reserva, cancela e lista as reservas de áreas comuns (salão de festas, churrasqueira, quadra) do morador e verifica se uma data está livre.",
     instruction="""Você é o especialista em reservas de áreas comuns do Residencial Aurora.
 Use listar_areas para descobrir o id e a taxa de cada área. Para reservar, chame reservar_area
@@ -43,7 +53,7 @@ Se o pedido não for sobre reservas, transfira para o agente adequado.
 
 visitantes = LlmAgent(
     name="visitantes",
-    model=MODELO,
+    model=modelo,
     description="Autoriza a entrada de visitantes no prédio e lista os visitantes autorizados do morador.",
     instruction="""Você é o especialista em autorização de visitantes do Residencial Aurora.
 Para liberar uma entrada, chame autorizar_visitante com o nome e a data: a própria tool pede a
@@ -55,7 +65,7 @@ Se o pedido não for sobre visitantes, transfira para o agente adequado.
 
 regulamento = LlmAgent(
     name="regulamento",
-    model=MODELO,
+    model=modelo,
     description="Responde dúvidas sobre o regulamento interno do condomínio. Recebe a pergunta do morador e devolve a resposta.",
     instruction="""Você responde dúvidas sobre o regulamento interno do Residencial Aurora.
 1. Chame indice_do_regulamento para ver os títulos dos capítulos.
@@ -69,7 +79,7 @@ Se o regulamento não tratar do assunto, diga isso.
 
 assistente = LlmAgent(
     name="assistente_aurora",
-    model=MODELO,
+    model=modelo,
     description="Assistente virtual dos moradores do Residencial Aurora.",
     instruction="""Você é o assistente virtual do Residencial Aurora e conduz a conversa com o morador.
 Distribua o trabalho:

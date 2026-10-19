@@ -4,11 +4,12 @@ import asyncio
 from collections import defaultdict
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from google.adk.runners import Runner
 from google.adk.sessions import Session
 from google.adk.sessions.sqlite_session_service import SqliteSessionService
-from google.genai import types
+from google.genai import errors, types
 from pydantic import BaseModel
 
 from aurora import db
@@ -31,6 +32,11 @@ async def lifespan(_: FastAPI):
 
 
 api = FastAPI(title="Residencial Aurora", lifespan=lifespan)
+
+
+@api.exception_handler(errors.APIError)
+async def erro_do_modelo(_: Request, erro: errors.APIError) -> JSONResponse:
+    return JSONResponse(status_code=502, content={"detail": f"Falha ao chamar o modelo: {erro.code} {erro.status}"})
 
 
 class NovaSessao(BaseModel):
